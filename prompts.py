@@ -36,10 +36,9 @@ CYPHER_PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            (
-                "根据下面的 Neo4j graph schema，编写一个 Cypher 查询来回答用户的问题： "
-                "\n{schema} \n问题中包含的实体：{entities} \n问题中包含的关系类型：{relations} \n问题: {question} \nCypher 查询:"
-            ),
+            "根据下面的 Neo4j graph schema，编写一个 Cypher 查询来回答用户的问题： "
+            "\n{schema} \n问题中包含的实体：{entities} \n问题中包含的关系类型：{relations} \n问题: {question} \nCypher 查询:"
+            ,
         ),
     ]
 )
@@ -52,10 +51,26 @@ QA_PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            (
-                "根据下面的Cypher查询和Cypher查询结果列表，来回答用户的问题： "
-                "Cypher查询：{query} \n查询结果列表：{list} \n问题: {question} \n你的回答:"
-            ),
+            "根据下面的Cypher查询和Cypher查询结果列表，来回答用户的问题： "
+            "Cypher查询：{query} \n查询结果列表：{list} \n问题: {question} \n你的回答:"
+            ,
+        ),
+    ]
+)
+
+FIX_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "你是一个来自Neo4j公司的专家，你十分熟悉Cypher语法，现在你需要给你的新同事修改他写的Cypher语句，也就是给定一个出错的Cypher语句，"
+            "你需要将其修正为一个可以运行的Cypher语句",
+        ),
+        (
+            "human",
+            "请根据报错信息纠正以下Cypher语句:"
+            "```出错的Cypher语句:\n{cypher}\n```\n报错信息: {error}"
+            "你的回复不应该有多余叙述, 请务必只返回修正后的Cypher语句本身，且不要用```cypher等回复！"
+            ,
         ),
     ]
 )
