@@ -43,7 +43,7 @@ qa_chain = None
 unique_id = uuid4().hex[0:8]
 os.environ["LANGCHAIN_PROJECT"] = f" [Text2Cypher] Tracing Walkthrough - {unique_id}"
 os.environ["LANGCHAIN_TRACING_V2"] = 'true'
-os.environ["LANGCHAIN_API_KEY"] = "ls__5aea581c3a214e19ad211a4e8b1986a7"
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("MY_LANGCHAIN_API_KEY")
 DEFAULT_CHAT_MODEL = "gpt-4o-2024-05-13"
 # 嵌入模型
 embeddings = AzureOpenAIEmbeddings(
