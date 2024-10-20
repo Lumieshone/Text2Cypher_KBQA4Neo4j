@@ -67,7 +67,7 @@ llm = AzureChatOpenAI(
 URL = "bolt://localhost:7687"
 DATABASE = "jinyong"
 USERNAME = "neo4j"
-PASSWORD = "flx020709"
+PASSWORD = "neo4j"
 
 entity_parser = PydanticOutputParser(pydantic_object=Entities)
 relation_parser = PydanticOutputParser(pydantic_object=Relations)
