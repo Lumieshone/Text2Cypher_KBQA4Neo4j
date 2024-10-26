@@ -1,73 +1,49 @@
-import os
 from operator import itemgetter
-
-import gradio as gr
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-from langchain.memory import ConversationBufferMemory
-from langchain_elasticsearch import ElasticsearchStore
-from elastic_search_bm25 import ElasticSearchBM25Retriever
-
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 from uuid import uuid4
 
+import gradio as gr
+from elasticsearch import Elasticsearch
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from langchain_community.chains.graph_qa.cypher_utils import (
     CypherQueryCorrector,
     Schema,
 )
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_community.graphs import Neo4jGraph
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_elasticsearch import ElasticsearchStore
 
-from Extract_objects import Entities, Relations
-from prompts import ENTITY_PROMPT, RELATION_PROMPT, CYPHER_PROMPT, QA_PROMPT, FIX_PROMPT
-from elasticsearch import Elasticsearch
+from tools.Extract_objects import Entities, Relations
+from tools.elastic_search_bm25 import ElasticSearchBM25Retriever
+from tools.prompts import ENTITY_PROMPT, RELATION_PROMPT, CYPHER_PROMPT, QA_PROMPT, FIX_PROMPT
+from tools.setting import MY_EMBEDDING, MY_LLM, INIT_URL, INIT_DATABASE, INIT_USERNAME, INIT_PASSWORD, ES_URL, \
+    QUESTION_EXAMPLES
 
-# 初始化 Elasticsearch 客户端
-es_client = Elasticsearch("http://localhost:9200")
-# 初始状态下不连接数据库
-graph = None
-relations = None
-types = None
-schema = None
-entity_names = None
-corrector_schema = None
-cypher_validation = None
-vectorstore = None
-entity_vector_retriever = None
-relationship_vector_retriever = None
-cypher_chain = None
-qa_chain = None
-unique_id = uuid4().hex[0:8]
-os.environ["LANGCHAIN_PROJECT"] = f" [Text2Cypher] Tracing Walkthrough - {unique_id}"
-os.environ["LANGCHAIN_TRACING_V2"] = 'true'
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("MY_LANGCHAIN_API_KEY")
-DEFAULT_CHAT_MODEL = "gpt-4o-2024-05-13"
-# 嵌入模型
-embeddings = AzureOpenAIEmbeddings(
-    model="embedding-ada02",
-    azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),
-    api_version="2024-06-01",
-)
-
-# Initialize FastAPI
+# 初始化 FastAPI
 app = FastAPI()
 
-llm = AzureChatOpenAI(
-    azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),
-    api_version="2024-06-01",
-    azure_deployment="gpt4o",
-    temperature=0
-)
+# 初始状态下不连接数据库
+graph = None
+schema = None
+types = None
+names = None
+qa_chain = None
+unique_id = uuid4().hex[0:8]
 
-URL = "bolt://localhost:7687"
-DATABASE = "jinyong"
-USERNAME = "neo4j"
-PASSWORD = "neo4j"
+# 配置LangSmith（可选）
+# os.environ["LANGCHAIN_PROJECT"] = f" [Text2Cypher] Tracing Walkthrough - {unique_id}"
+# os.environ["LANGCHAIN_TRACING_V2"] = 'true'
+# os.environ["LANGCHAIN_API_KEY"] = os.getenv("MY_LANGCHAIN_API_KEY")
+
+# 基本设置
+LLM = MY_LLM
+EMBEDDING_MODEL = MY_EMBEDDING
+URL = INIT_URL
+DATABASE = INIT_DATABASE
+USERNAME = INIT_USERNAME
+PASSWORD = INIT_PASSWORD
 
 entity_parser = PydanticOutputParser(pydantic_object=Entities)
 relation_parser = PydanticOutputParser(pydantic_object=Relations)
@@ -91,7 +67,7 @@ def create_graph(url, database, username, password):
 
 
 def chat(que):
-    r = qa_chain.invoke({"question": que, "schema": schema, "nodes": entity_names, "types": types})
+    r = qa_chain.invoke({"question": que, "schema": schema, "nodes": names, "types": types})
     print(r)
     return r
 
@@ -101,43 +77,31 @@ def chat_response(input_text, history):
         return "Please connect to the database first."
     return chat(input_text)
 
-
-def on_connect(neo4j_url, neo4j_database, neo4j_username, neo4j_password):
-    global graph, relations, types, schema, entity_names, vectorstore, corrector_schema, cypher_validation, \
-        entity_vector_retriever, relationship_vector_retriever, cypher_chain, qa_chain
-    try:
-        graph = create_graph(neo4j_url, neo4j_database, neo4j_username, neo4j_password)
-        graph.query("MATCH (n) RETURN n LIMIT 1")
-    except Exception as e:
-        return f"Connection failed: {str(e)}"
-    relations = graph.query("CALL db.relationshipTypes")
-    types = [relation_type["relationshipType"] for relation_type in relations]
-    schema = graph.get_structured_schema
+def get_types_and_names(neo4j_graph):
+    relationships = neo4j_graph.query("CALL db.relationshipTypes")
     prop_query = """
-    MATCH (n)
-    RETURN properties(n) AS properties;
-    """
-    properties = [x["properties"] for x in graph.query(prop_query)]
+        MATCH (n)
+        RETURN properties(n) AS properties;
+        """
+    properties = [x["properties"] for x in neo4j_graph.query(prop_query)]
     first_key = list(properties[0].keys())[0]
-    entity_names = [x[first_key] for x in properties]
-    corrector_schema = [
-        Schema(el["start"], el["type"], el["end"])
-        for el in schema.get("relationships")
-    ]
-    cypher_validation = CypherQueryCorrector(corrector_schema)
-    # 构建索引名称
-    index_name = f"index_{neo4j_database}_vectors"
+    return [relation_type["relationshipType"] for relation_type in relationships], [x[first_key] for x in properties]
+
+def create_index(index_name, relation_types, entity_names):
+    # 初始化ES
     vectorstore = ElasticsearchStore(
-        es_url="http://localhost:9200",
+        es_url=ES_URL,
         index_name=index_name,
-        embedding=embeddings,
-        vector_query_field='question_vectors'
+        embedding=EMBEDDING_MODEL,
+        vector_query_field='item_vectors'
     )
+    # 初始化BM25检索器
     entity_vector_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
                                                          data_type="entity_names", k=3, score_threshold=0.72)
     relationship_vector_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
                                                                data_type="relationships", k=3, score_threshold=0.72)
-
+    # 初始化 Elasticsearch 客户端
+    es_client = Elasticsearch(ES_URL)
     # 检查索引是否存在
     if not es_client.indices.exists(index=index_name):
         # 嵌入字符串列表 node_props 并添加到索引
@@ -146,35 +110,58 @@ def on_connect(neo4j_url, neo4j_database, neo4j_username, neo4j_password):
             vectorstore.add_texts(texts=entity_names, metadatas=metadata_nodes)
         # 嵌入字符串列表 types 并添加到索引
         if types:
-            metadata_relationships = [{"type": "relationships"} for _ in types]
-            vectorstore.add_texts(texts=types, metadatas=metadata_relationships)
-        print(f"建立了新索引{index_name}")
+            metadata_relationships = [{"type": "relationships"} for _ in relation_types]
+            vectorstore.add_texts(texts=relation_types, metadatas=metadata_relationships)
+        print(f"建立了新索引 {index_name}")
     else:
         # 索引不为空，不做操作
-        print(f"Index {index_name} already exists and is not empty.")
-    cypher_chain = (
+        print(f"索引 {index_name} 已经存在！")
+    # 生成Cypher
+    generate_cypher_chain = (
             {
                 "entities": itemgetter("question") | entity_vector_retriever,
                 "relations": itemgetter("question") | relationship_vector_retriever,
                 "question": itemgetter("question"),
                 "schema": itemgetter("schema")
             } |
-            cypher_prompt | llm | StrOutputParser()
+            cypher_prompt | LLM | StrOutputParser()
     )
-    qa_chain = RunnablePassthrough.assign(query=cypher_chain) | RunnablePassthrough.assign(
-        list=lambda x: execute_cypher(x["query"]),
-    ) | qa_prompt | llm | StrOutputParser()
+    return generate_cypher_chain
+
+
+def on_connect(neo4j_url, neo4j_database, neo4j_username, neo4j_password):
+    global graph, schema, types, names, qa_chain
+    try:
+        graph = create_graph(neo4j_url, neo4j_database, neo4j_username, neo4j_password)
+        graph.query("MATCH (n) RETURN n LIMIT 1")
+    except Exception as e:
+        return f"Connection failed: {str(e)}"
+    # 获取关系类型，实体名称
+    types, names = get_types_and_names(graph)
+    # 构建Cypher语法验证器
+    schema = graph.get_structured_schema
+    corrector_schema = [
+        Schema(el["start"], el["type"], el["end"])
+        for el in schema.get("relationships")
+    ]
+    cypher_validation = CypherQueryCorrector(corrector_schema)
+    # 构建索引名称
+    index_name = f"index_{neo4j_database}_vectors"
+    # 生成Cypher
+    cypher_chain = create_index(index_name, types, names)
+    # 问答chain
+    qa_chain =  RunnablePassthrough.assign(query=cypher_chain) | RunnablePassthrough.assign(
+        list=lambda x: execute_cypher(cypher_validation(x["query"]))
+    ) | qa_prompt | LLM | StrOutputParser()
     go_to_chat_button = gr.Button(value="进入聊天页面", interactive=True, link="/chat")
     return "Connection successful! You can now enter the chat page.", go_to_chat_button
 
 
-def execute_cypher(cypher):
-    print(f"Original Cypher: {cypher}")
-    corrected_cypher = cypher_validation(cypher)
+def execute_cypher(corrected_cypher):
     print(f"Corrected Cypher: {corrected_cypher}")
     fixing_chain = (
             fix_prompt
-            | llm
+            | LLM
             | StrOutputParser()
     )
     # 我们尝试3次
@@ -189,10 +176,6 @@ def execute_cypher(cypher):
             corrected_cypher = fixing_chain.invoke({"cypher": corrected_cypher, "error": e})
             print("LLM fix = {}".format(corrected_cypher))
     return f"Query failed: {str(e)}"
-
-
-# entity_chain = entity_prompt | llm | entity_parser
-# relation_chain = relation_prompt | llm | relation_parser
 
 
 neo4j_url_input = gr.Textbox(label="Neo4j URL", placeholder="请输入 Neo4j URL", value=URL)
@@ -221,14 +204,7 @@ chat_interface = gr.ChatInterface(fn=chat_response,
                                   undo_btn=None,
                                   retry_btn="🔄 重试",
                                   clear_btn="\U0001F5D1 清除对话",
-                                  examples=["黄蓉的丈夫在哪出生？",
-                                            "黄蓉父亲的徒弟都有谁？",
-                                            "会降龙十八掌的有哪些人？",
-                                            "谁参与了第三次华山论剑？",
-                                            "洪七公和郭襄的父亲分别会什么武功？",
-                                            "李萍她老公的儿媳妇是谁？",
-                                            "郭靖是如何称呼黄药师的女儿的？"
-                                            ])
+                                  examples=QUESTION_EXAMPLES)
 
 # Mount Gradio app to FastAPI
 app = gr.mount_gradio_app(app, connect_interface, path="/connect")
