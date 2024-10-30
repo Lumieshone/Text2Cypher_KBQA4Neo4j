@@ -77,9 +77,7 @@ Chat 界面如图所示，上方为问答区域，问答区域下方有重试和
 
 ![pipeline](./assets/pipeline.png)
 
-1. 首先使用 BM25 匹配算法，在 ES 中检索用户 Query 中出现的实体名称（Entity Name）和关系类型（Relationship Type）。我们在
-
-​	`tools/elastic_search_bm25.py` 中封装了自定义的检索器类，它使用归一化后的 BM25 Score作为阈值检索 top-k 的结果列表。
+1. 首先使用 BM25 匹配算法，在 ES 中检索用户 Query 中出现的实体名称（Entity Name）和关系类型（Relationship Type）。我们在`tools/elastic_search_bm25.py` 中封装了自定义的检索器类，它使用归一化后的 BM25 Score作为阈值检索 top-k 的结果列表。
 
 2. 随后，我们将用户 Query、提取出的实体名称、关系类型以及 Neo4j 数据库的 schema 提供给 LLM，让其给我们初步生成一个可以用来回答用户问题的 Cypher 语句。
 3. 接着，我们使用 CypherQueryCorrector 类构建一个 cypher_validation 来纠正该 Cypher 可能存在的一些基本语法错误，然后将这个纠正的 Cypher 语句传入自主设计的一个 fixing_chain，该 chain 尝试运行 Cypher语句，如若运行报错，则将该语句及其报错信息交给 LLM 进行进一步纠正，共尝试三次，最后我们基本可以得到一个可以运行的 Cypher 语句。
