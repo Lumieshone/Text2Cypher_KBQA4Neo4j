@@ -15,7 +15,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_elasticsearch import ElasticsearchStore
 
-from tools.Extract_objects import Entities, Relations
+from tools.extract_objects import Entities, Relations
 from tools.elastic_search_bm25 import ElasticSearchBM25Retriever
 from tools.prompts import ENTITY_PROMPT, RELATION_PROMPT, CYPHER_PROMPT, QA_PROMPT, FIX_PROMPT
 from tools.setting import MY_EMBEDDING, MY_LLM, INIT_URL, INIT_DATABASE, INIT_USERNAME, INIT_PASSWORD, ES_URL, \
@@ -96,9 +96,9 @@ def create_index(index_name, relation_types, entity_names):
         vector_query_field='item_vectors'
     )
     # 初始化BM25检索器
-    entity_vector_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
+    entity_bm25_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
                                                          data_type="entity_names", k=3, score_threshold=0.72)
-    relationship_vector_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
+    relationship_bm25_retriever = ElasticSearchBM25Retriever(client=vectorstore.client, index_name=index_name,
                                                                data_type="relationships", k=3, score_threshold=0.72)
     # 初始化 Elasticsearch 客户端
     es_client = Elasticsearch(ES_URL)
@@ -119,8 +119,8 @@ def create_index(index_name, relation_types, entity_names):
     # 生成Cypher
     generate_cypher_chain = (
             {
-                "entities": itemgetter("question") | entity_vector_retriever,
-                "relations": itemgetter("question") | relationship_vector_retriever,
+                "entities": itemgetter("question") | entity_bm25_retriever,
+                "relations": itemgetter("question") | relationship_bm25_retriever,
                 "question": itemgetter("question"),
                 "schema": itemgetter("schema")
             } |
