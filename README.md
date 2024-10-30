@@ -31,9 +31,9 @@ pip install -r requirements.txt
 项目中所有可以自定义的参数都在 `tools/setting.py` 中，以下是该文件中各个参数的详细介绍：
 
 | Parameter         | Meaning                           | Type             | Default                                                      |
-| ----------------- | --------------------------------- | ---------------- | ------------------------------------------------------------ |
-| MY_EMBEDDING      | 嵌入模型                          | OpenAIEmbeddings | AzureOpenAIEmbeddings(<br />model="embedding-ada02",  azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),     api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),     api_version="2024-06-01", ) |
-| MY_LLM            | 用于生成Cypher和问答的大模型      | BaseChatOpenAI   | AzureChatOpenAI(     azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),     api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),     api_version="2024-06-01",     azure_deployment="gpt4o",     temperature=0 ) |
+| ----------------- | :-------------------------------- | ---------------- | ------------------------------------------------------------ |
+| MY_EMBEDDING      | 嵌入模型                          | OpenAIEmbeddings | AzureOpenAIEmbeddings(<br />model="embedding-ada02",  azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),     api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),     api_version="2024-06-01") |
+| MY_LLM            | 用于生成Cypher和问答的大模型      | BaseChatOpenAI   | AzureChatOpenAI( azure_endpoint=os.getenv("MY_AZURE_OPENAI_ENDPOINT"),     api_key=os.getenv("MY_AZURE_OPENAI_API_KEY"),     api_version="2024-06-01", <br />azure_deployment="gpt4o", <br />temperature=0) |
 | ES_URL            | ElasticSearch的Client的URL        | String           | "http://localhost:9200"                                      |
 | INIT_URL          | Neo4j的Client的URL默认值          | String           | "bolt://localhost:7687"                                      |
 | INIT_DATABASE     | 要进行问答的Neo4j数据库名称默认值 | String           | "jinyong"                                                    |
@@ -53,27 +53,29 @@ python client.py
 
 ### Test Connection
 
-Demo Server成功运行后，用户可以在默认路由设置 Neo4j 的相关连接配置并测试连接![test界面](.\assets\test1.png)
+Demo Server成功运行后，用户可以在默认路由设置 Neo4j 的相关连接配置并测试连接
+
+![test界面](./assets/test1.png)
 
 ### ES Indexing
 
 在测试连接时，系统还会完成 ES 对于该数据库内实体名称（Entity Name）和关系类型（Relationship Type）的向量化存储过程，ES 会检查当前数据库有无同名 index，没有则建立一个新 index，ES 的 index 存储模式如下所示（以 “jinyong” 知识图谱为例）：
 
-![ES存储模式](.\assets\ES.png)
+![ES存储模式](./assets/ES.png)
 
 在 Neo4j 连接测试成功，ES 索引检查/建立完毕后，用户可以进入聊天页面进行 QA 问答：
 
-![连接成功界面](.\assets\test2.png)
+![连接成功界面](./assets/test2.png)
 
 ### KBQA Chatbot
 
 Chat 界面如图所示，上方为问答区域，问答区域下方有重试和清除对话按钮、问题输入框，以及用户在 `setting.py` 里设置好的问题示例，图中展示了几个多跳问题的回答情况：
 
-![Chat界面](.\assets\chat.png)
+![Chat界面](./assets/chat.png)
 
 这里问答过程的 pipeline 如下图所示：
 
-![pipeline](.\assets\pipeline.png)
+![pipeline](./assets/pipeline.png)
 
 1. 首先使用 BM25 匹配算法，在 ES 中检索用户 Query 中出现的实体名称（Entity Name）和关系类型（Relationship Type）。我们在
 
